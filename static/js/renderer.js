@@ -1,5 +1,5 @@
 /**
- * Canvas 精美渲染：天空、彈弓、草皮、裝飾樹、木箱、小豬、彈道
+ * Canvas 精美渲染：天空、彈弓、排隊小鳥、草皮、障礙物、彈道
  */
 (function () {
   "use strict";
@@ -7,6 +7,16 @@
   const KIND_PIG = 1;
   const KIND_BOX = 2;
   const BIRD_RADIUS = 16;
+
+  /** 彈弓幾何常數（anchor 為發射錨點＝小鳥靜止中心） */
+  const SLING = {
+    FORK_SPREAD: 22,
+    FORK_RISE: 42,
+    POLE_LENGTH: 38,
+    QUEUE_GAP: 30,
+    QUEUE_LEFT: 58,
+    QUEUE_DOWN: 36,
+  };
 
   const clouds = [
     { x: 180, y: 90, s: 1.0 },
@@ -46,10 +56,45 @@
     ctx.fill();
   }
 
+  /**
+   * 由發射錨點（空洞處）推算彈弓 Y 字架與橡皮筋端點
+   * @param {number} anchorX 發射起點 x（與物理引擎 start_x 一致）
+   * @param {number} anchorY 發射起點 y（Y 字兩撇中間上方空洞，較舊版交叉點更高）
+   */
+  function getSlingshotGeometry(anchorX, anchorY) {
+    const junctionY = anchorY + 10;
+    return {
+      anchor: { x: anchorX, y: anchorY },
+      forkLeft: { x: anchorX - SLING.FORK_SPREAD, y: junctionY - SLING.FORK_RISE },
+      forkRight: { x: anchorX + SLING.FORK_SPREAD, y: junctionY - SLING.FORK_RISE },
+      junction: { x: anchorX, y: junctionY },
+      poleBottom: { x: anchorX, y: anchorY + SLING.POLE_LENGTH },
+    };
+  }
+
+  /**
+   * 排隊槽位座標（slot 0 = 發射點，1、2 = 左下方水平等候）
+   * @param {object} geom getSlingshotGeometry 回傳值
+   * @param {number} slotIndex 0 為即將發射，1、2 為後方排隊
+   */
+  function getQueueSlotPosition(geom, slotIndex) {
+    if (slotIndex === 0) {
+      return { x: geom.anchor.x, y: geom.anchor.y };
+    }
+    const row = slotIndex - 1;
+    return {
+      x: geom.anchor.x - SLING.QUEUE_LEFT - row * SLING.QUEUE_GAP,
+      y: geom.anchor.y + SLING.QUEUE_DOWN,
+    };
+  }
+
   window.GameRenderer = {
     KIND_PIG,
     KIND_BOX,
     BIRD_RADIUS,
+    SLING,
+    getSlingshotGeometry,
+    getQueueSlotPosition,
 
     drawBackground(ctx, w, h) {
       const sky = ctx.createLinearGradient(0, 0, 0, h);
@@ -84,37 +129,38 @@
       }
     },
 
-    drawSlingshot(ctx, x, y, birdPos) {
-      const forkY = y - 8;
-      const forkSpread = 22;
-
+    /**
+     * 繪製 Y 字彈弓架
+     * @param {boolean} showRubberBands 僅準備發射時 true；飛行中不畫繩子
+     * @param {{x:number,y:number}|null} bandTarget 橡皮筋連接點（通常為錨點／小鳥中心）
+     */
+    drawSlingshot(ctx, geom, showRubberBands, bandTarget) {
       ctx.strokeStyle = "#5c4033";
       ctx.lineWidth = 7;
       ctx.lineCap = "round";
 
       ctx.beginPath();
-      ctx.moveTo(x, y + 35);
-      ctx.lineTo(x, forkY);
+      ctx.moveTo(geom.junction.x, geom.junction.y);
+      ctx.lineTo(geom.poleBottom.x, geom.poleBottom.y);
       ctx.stroke();
 
       ctx.beginPath();
-      ctx.moveTo(x, forkY);
-      ctx.lineTo(x - forkSpread, forkY - 45);
-      ctx.moveTo(x, forkY);
-      ctx.lineTo(x + forkSpread, forkY - 45);
+      ctx.moveTo(geom.junction.x, geom.junction.y);
+      ctx.lineTo(geom.forkLeft.x, geom.forkLeft.y);
+      ctx.moveTo(geom.junction.x, geom.junction.y);
+      ctx.lineTo(geom.forkRight.x, geom.forkRight.y);
       ctx.stroke();
 
-      const bx = birdPos ? birdPos.x : x;
-      const by = birdPos ? birdPos.y : y;
-
-      ctx.strokeStyle = "#2a1a0a";
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(x - forkSpread + 4, forkY - 40);
-      ctx.quadraticCurveTo(bx - 6, by - 4, bx, by);
-      ctx.moveTo(x + forkSpread - 4, forkY - 40);
-      ctx.quadraticCurveTo(bx + 6, by - 4, bx, by);
-      ctx.stroke();
+      if (showRubberBands && bandTarget) {
+        ctx.strokeStyle = "#2a1a0a";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(geom.forkLeft.x, geom.forkLeft.y);
+        ctx.lineTo(bandTarget.x, bandTarget.y);
+        ctx.moveTo(geom.forkRight.x, geom.forkRight.y);
+        ctx.lineTo(bandTarget.x, bandTarget.y);
+        ctx.stroke();
+      }
     },
 
     drawWoodBox(ctx, obs) {
@@ -185,8 +231,9 @@
       ctx.restore();
     },
 
-    drawBird(ctx, x, y) {
+    drawBird(ctx, x, y, alpha) {
       ctx.save();
+      ctx.globalAlpha = alpha ?? 1;
       ctx.shadowColor = "rgba(0,0,0,0.25)";
       ctx.shadowBlur = 6;
       ctx.fillStyle = "#ff5c3a";
@@ -211,6 +258,30 @@
       ctx.arc(x + 6, y - 5, 2, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
+    },
+
+    /**
+     * 依剩餘鳥數繪製排隊小鳥（對應 Queue 視覺遞補）
+     * @param {number} remainingBirds 後端 remaining_birds（最多 3）
+     * @param {boolean} isFlying 飛行中不繪製排隊（已離開彈弓的鳥）
+     */
+    drawBirdQueue(ctx, geom, remainingBirds, isFlying) {
+      if (isFlying || remainingBirds <= 0) {
+        return;
+      }
+
+      /*
+       * 迴圈邏輯：remainingBirds 表示「尚在佇列中、尚未發射」的隻數。
+       * slot 0 → 發射錨點（下一隻將從此處擊出）
+       * slot 1、2 → 左下方水平間距 SLING.QUEUE_GAP 排隊
+       * 當一隻飛走後 remainingBirds 減 1，視覺上僅繪製 0..remaining-1，
+       * 等同第 2、3 隻往前遞補到 slot 0、1。
+       */
+      for (let slot = 0; slot < remainingBirds; slot++) {
+        const pos = getQueueSlotPosition(geom, slot);
+        const dim = slot > 0 ? 0.92 : 1;
+        this.drawBird(ctx, pos.x, pos.y, dim);
+      }
     },
 
     drawTrail(ctx, trail) {
@@ -241,12 +312,25 @@
         else this.drawWoodBox(ctx, obs);
       }
 
-      const sx = state.slingshotX ?? 120;
-      const sy = state.slingshotY ?? 380;
-      this.drawSlingshot(ctx, sx, sy, state.birdPos);
+      const anchorX = state.anchorX ?? 120;
+      const anchorY = state.anchorY ?? 348;
+      const geom = getSlingshotGeometry(anchorX, anchorY);
 
-      if (state.trail?.length) this.drawTrail(ctx, state.trail);
-      if (state.birdPos) this.drawBird(ctx, state.birdPos.x, state.birdPos.y);
+      const isFlying = state.isFlying === true;
+      const showBands = state.showRubberBands === true && !isFlying;
+
+      const bandTarget = showBands ? geom.anchor : null;
+      this.drawSlingshot(ctx, geom, showBands, bandTarget);
+
+      this.drawBirdQueue(ctx, geom, state.remainingBirds ?? 0, isFlying);
+
+      if (state.trail?.length) {
+        this.drawTrail(ctx, state.trail);
+      }
+
+      if (isFlying && state.birdPos) {
+        this.drawBird(ctx, state.birdPos.x, state.birdPos.y, 1);
+      }
     },
   };
 })();

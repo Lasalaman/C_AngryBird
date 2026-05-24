@@ -13,9 +13,9 @@ static const ObstacleDef DEFAULT_OBSTACLES[] = {
 };
 
 static const BirdDef DEFAULT_BIRDS[] = {
-    {101, BIRD_SPECIES_RED, 120.0f, 380.0f},
-    {102, BIRD_SPECIES_RED, 120.0f, 380.0f},
-    {103, BIRD_SPECIES_RED, 120.0f, 380.0f},
+    {101, BIRD_SPECIES_RED, 120.0f, 348.0f},
+    {102, BIRD_SPECIES_RED, 120.0f, 348.0f},
+    {103, BIRD_SPECIES_RED, 120.0f, 348.0f},
 };
 
 size_t level_default_obstacle_count(void)

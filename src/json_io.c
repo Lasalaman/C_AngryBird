@@ -214,7 +214,7 @@ static bool parse_bird_object(const char *obj, void *out)
     }
 
     if (!json_read_double(obj, "spawn_y", &value)) {
-        def->spawn_y = 380.0f;
+        def->spawn_y = 348.0f;
     } else {
         def->spawn_y = (float)value;
     }
@@ -391,7 +391,7 @@ bool json_parse_request(const char *json, SimRequest *out)
     }
 
     if (!json_read_double(json, "start_y", &value)) {
-        out->launch.start_y = 380.0;
+        out->launch.start_y = 348.0;
     } else {
         out->launch.start_y = (float)value;
     }

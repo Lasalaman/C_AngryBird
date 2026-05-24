@@ -44,7 +44,7 @@ DEFAULT_LEVEL: dict[str, Any] = {
     "gravity": 980.0,
     "time_step": 1.0 / 60.0,
     "bird_radius": 16.0,
-    "spawn": {"start_x": 120.0, "start_y": 380.0},
+    "spawn": {"start_x": 120.0, "start_y": 348.0},
     "obstacles": [
         {
             "id": 1,

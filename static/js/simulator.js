@@ -1,6 +1,5 @@
 /**
- * 遊戲主邏輯：API、佇列、動畫、勝負 Modal
- * 障礙物狀態僅來自 C 持久化回傳，發射時不還原已摧毀木箱。
+ * 遊戲主邏輯：API、佇列視覺遞補、飛行狀態（橡皮筋開關）、勝負 Modal
  */
 
 (function () {
@@ -9,6 +8,9 @@
   const R = window.GameRenderer;
   const TOTAL_BIRDS = 3;
   const MS_PER_POINT = 20;
+
+  /** 發射錨點預設：Y 字兩撇中間上方空洞（較舊交叉點更高） */
+  const DEFAULT_ANCHOR = { x: 120, y: 348 };
 
   const canvas = document.getElementById("simCanvas");
   const ctx = canvas.getContext("2d");
@@ -30,11 +32,18 @@
 
   let toastTimer = null;
 
+  /**
+   * gamePhase 控制橡皮筋與排隊繪製
+   * - ready：拉弓狀態，顯示繩子 + 排隊小鳥
+   * - computing：等待 C 引擎（仍顯示 ready 姿態，繩子可保留至起飛）
+   * - flying：飛行中，不畫繩子、不畫排隊，只畫飛行中鳥與彈道
+   */
   const Game = {
     totalBirds: TOTAL_BIRDS,
     remainingBirds: TOTAL_BIRDS,
     remainingPigs: 1,
     gameStatus: "playing",
+    gamePhase: "ready",
     canLaunch: true,
     isAnimating: false,
   };
@@ -48,6 +57,17 @@
   function readNumber(id, fallback) {
     const v = parseFloat($(id).value);
     return Number.isFinite(v) ? v : fallback;
+  }
+
+  function getAnchor() {
+    return {
+      x: readNumber("start_x", DEFAULT_ANCHOR.x),
+      y: readNumber("start_y", DEFAULT_ANCHOR.y),
+    };
+  }
+
+  function isFlyingPhase() {
+    return Game.gamePhase === "flying";
   }
 
   function enrichObstacle(raw) {
@@ -65,7 +85,6 @@
     };
   }
 
-  /** 僅用伺服器/C 持久化狀態更新障礙物（不還原已死木箱） */
   function syncObstaclesFromServer(list) {
     Level.obstacles = (list || []).map(enrichObstacle);
   }
@@ -75,11 +94,15 @@
     if (data.spawn) {
       if (data.spawn.start_x != null) $("start_x").value = data.spawn.start_x;
       if (data.spawn.start_y != null) $("start_y").value = data.spawn.start_y;
+    } else {
+      $("start_x").value = DEFAULT_ANCHOR.x;
+      $("start_y").value = DEFAULT_ANCHOR.y;
     }
     Game.totalBirds = data.total_birds ?? TOTAL_BIRDS;
     Game.remainingBirds = data.remaining_birds ?? Game.totalBirds;
     Game.remainingPigs = data.remaining_pigs ?? 1;
     Game.gameStatus = data.game_status ?? "playing";
+    Game.gamePhase = "ready";
     updateBirdDots();
     updateLaunchButton();
   }
@@ -98,22 +121,25 @@
     const ok =
       Game.gameStatus === "playing" &&
       Game.canLaunch &&
+      Game.gamePhase !== "flying" &&
       !Game.isAnimating &&
       Game.remainingBirds > 0;
     launchBtn.disabled = !ok;
-    resetBtn.disabled = Game.isAnimating;
+    resetBtn.disabled = Game.isAnimating || Game.gamePhase === "flying";
   }
 
   function renderFrame(birdPos, trail) {
+    const anchor = getAnchor();
+    const ready = Game.gamePhase === "ready" || Game.gamePhase === "computing";
+
     R.drawFrame(ctx, canvas, {
       obstacles: Level.obstacles,
-      slingshotX: readNumber("start_x", 120),
-      slingshotY: readNumber("start_y", 380),
-      birdPos:
-        birdPos ||
-        (Game.remainingBirds > 0 && Game.canLaunch && !Game.isAnimating
-          ? { x: readNumber("start_x", 120), y: readNumber("start_y", 380) }
-          : null),
+      anchorX: anchor.x,
+      anchorY: anchor.y,
+      remainingBirds: Game.remainingBirds,
+      isFlying: isFlyingPhase(),
+      showRubberBands: ready && Game.remainingBirds > 0,
+      birdPos: isFlyingPhase() ? birdPos : null,
       trail: trail || [],
     });
   }
@@ -148,6 +174,7 @@
       modalTitle.className = "modal-title modal-lose";
     }
     Game.canLaunch = false;
+    Game.gamePhase = "ready";
     updateLaunchButton();
   }
 
@@ -157,12 +184,8 @@
   }
 
   function circleHitsRect(cx, cy, r, obs) {
-    const rx = obs.x;
-    const ry = obs.y;
-    const rw = obs.width;
-    const rh = obs.height;
-    const closestX = Math.max(rx, Math.min(cx, rx + rw));
-    const closestY = Math.max(ry, Math.min(cy, ry + rh));
+    const closestX = Math.max(obs.x, Math.min(cx, obs.x + obs.width));
+    const closestY = Math.max(obs.y, Math.min(cy, obs.y + obs.height));
     const dx = cx - closestX;
     const dy = cy - closestY;
     return dx * dx + dy * dy <= r * r;
@@ -209,6 +232,7 @@
     cancelAnimation();
     Animator.running = true;
     Game.isAnimating = true;
+    Game.gamePhase = "flying";
     updateLaunchButton();
 
     let index = 0;
@@ -220,6 +244,7 @@
       function finish() {
         Animator.running = false;
         Game.isAnimating = false;
+        Game.gamePhase = "ready";
         resolve({ hit: hitDetected || simResult.hit });
       }
 
@@ -280,6 +305,7 @@
       Animator.trail = [];
       Game.canLaunch = true;
       Game.gameStatus = "playing";
+      Game.gamePhase = "ready";
       renderFrame(null, []);
       setBadge("idle", "就緒");
       showToast("關卡已重製：3 隻鳥、障礙物已恢復", "warn");
@@ -298,6 +324,9 @@
       const data = await res.json();
       if (!res.ok) throw new Error();
       applySession(data);
+      if (data.spawn?.start_y === 380) {
+        $("start_y").value = DEFAULT_ANCHOR.y;
+      }
     } catch {
       await resetLevel();
       return;
@@ -307,20 +336,24 @@
   }
 
   async function launch() {
-    if (!Game.canLaunch || Game.isAnimating || Game.remainingBirds <= 0) return;
+    if (!Game.canLaunch || Game.remainingBirds <= 0) return;
     if (Game.gameStatus !== "playing") return;
+    if (Game.gamePhase === "flying") return;
 
     cancelAnimation();
+    Game.gamePhase = "computing";
     launchBtn.disabled = true;
     btnSpinner.hidden = false;
     setBadge("loading", "計算中");
+    renderFrame(null, []);
 
+    const anchor = getAnchor();
     const payload = {
       angle: readNumber("angle", 35),
       velocity: readNumber("velocity", 550),
       gravity: readNumber("gravity", 980),
-      start_x: readNumber("start_x", 120),
-      start_y: readNumber("start_y", 380),
+      start_x: anchor.x,
+      start_y: anchor.y,
     };
 
     try {
@@ -343,6 +376,7 @@
       Game.remainingBirds = data.remaining_birds ?? Game.remainingBirds;
       Game.remainingPigs = data.remaining_pigs ?? Game.remainingPigs;
       Game.gameStatus = data.game_status ?? Game.gameStatus;
+      Game.gamePhase = "ready";
 
       resultMeta.hidden = false;
       metaHit.textContent = anim.hit ? "是！擊中目標！" : "否";
@@ -366,6 +400,7 @@
     } catch (e) {
       showToast(e.message || "發射失敗");
       setBadge("error", "失敗");
+      Game.gamePhase = "ready";
       renderFrame(null, []);
       Game.canLaunch = true;
     } finally {
@@ -378,6 +413,9 @@
   launchBtn.addEventListener("click", launch);
   resetBtn.addEventListener("click", resetLevel);
   modalResetBtn.addEventListener("click", resetLevel);
+
+  $("start_x").value = DEFAULT_ANCHOR.x;
+  $("start_y").value = DEFAULT_ANCHOR.y;
 
   initGame();
 })();
