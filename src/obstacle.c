@@ -4,6 +4,7 @@
  */
 
 #include "obstacle.h"
+#include "level.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -38,6 +39,29 @@ void obstacle_init(
     out->life_state = LIFE_STATE_ACTIVE;
     out->is_alive = true;
     out->is_static = is_static;
+}
+
+void obstacle_init_from_def(Obstacle *out, const ObstacleDef *def)
+{
+    if (out == NULL || def == NULL) {
+        return;
+    }
+
+    obstacle_init(
+        out,
+        def->id,
+        def->kind,
+        def->material,
+        def->x,
+        def->y,
+        def->width,
+        def->height,
+        def->hit_points,
+        def->is_static);
+
+    if (!def->is_alive) {
+        obstacle_mark_destroyed(out);
+    }
 }
 
 Obstacle *obstacle_create(

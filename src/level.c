@@ -104,6 +104,38 @@ void level_mark_failed(LevelState *level)
     level->is_level_failed = true;
 }
 
+int level_count_alive_pigs(const Level *level)
+{
+    int count = 0;
+
+    if (level == NULL || level->obstacles == NULL) {
+        return 0;
+    }
+
+    for (size_t i = 0; i < level->obstacle_count; i++) {
+        const Obstacle *obs = &level->obstacles[i];
+        if (obs->kind == ENTITY_KIND_PIG && obs->is_alive) {
+            count++;
+        }
+    }
+
+    return count;
+}
+
+bool level_consume_bird_from_queue(Level *level, Bird *out_bird)
+{
+    if (level == NULL || out_bird == NULL || level->launch_queue == NULL) {
+        return false;
+    }
+
+    if (!bird_queue_dequeue(level->launch_queue, out_bird)) {
+        return false;
+    }
+
+    level->state.birds_remaining = (int)bird_queue_size(level->launch_queue);
+    return true;
+}
+
 /**
  * @brief 釋放 Level 內各子資源（不 free Level 外殼本身）
  */
@@ -209,17 +241,7 @@ Level *init_level(
              * 就地寫入陣列槽位，不另 malloc 單一 Obstacle。
              * &level->obstacles[i] 與 (level->obstacles + i) 等價。
              */
-            obstacle_init(
-                &level->obstacles[i],
-                def->id,
-                def->kind,
-                def->material,
-                def->x,
-                def->y,
-                def->width,
-                def->height,
-                def->hit_points,
-                def->is_static);
+            obstacle_init_from_def(&level->obstacles[i], def);
         }
     }
 

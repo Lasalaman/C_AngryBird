@@ -102,6 +102,7 @@ typedef struct ObstacleDef {
     float height;
     int hit_points;
     bool is_static;
+    bool is_alive; /**< false 表示已摧毀，launch 時不參與碰撞且前端不繪製 */
 } ObstacleDef;
 
 /**
@@ -154,6 +155,9 @@ typedef struct Level {
  * @param bird_count      待發射小鳥數量
  * @return 成功回傳 Level*；任何 malloc 失敗回傳 NULL（內部已釋放部分資源）
  */
+/** 由 ObstacleDef 初始化，並尊重 def->is_alive（持久化關卡用） */
+void obstacle_init_from_def(Obstacle *out, const ObstacleDef *def);
+
 Level *init_level(
     uint32_t level_id,
     Bounds bounds,
@@ -224,5 +228,20 @@ void level_mark_complete(LevelState *level);
  * @brief 將關卡標記為失敗
  */
 void level_mark_failed(LevelState *level);
+
+/**
+ * @brief 統計場上仍存活且未移除的豬數量
+ */
+int level_count_alive_pigs(const Level *level);
+
+/**
+ * @brief 從 FIFO 佇列取出下一隻待發射小鳥（Dequeue）
+ * @param out_bird 輸出拷貝；不可為 NULL
+ * @return true 成功；false 佇列為空或參數無效
+ *
+ * 記憶體：僅讀寫 launch_queue 環形緩衝區內的 Bird 值，不額外 malloc。
+ * 呼叫端須在 free_level() 時一併釋放整個 queue，避免逐鳥 free 造成雙重釋放。
+ */
+bool level_consume_bird_from_queue(Level *level, Bird *out_bird);
 
 #endif /* ANGRYBIRD_LEVEL_H */

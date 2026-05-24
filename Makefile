@@ -2,7 +2,7 @@ CC      = gcc
 CFLAGS  = -Wall -Wextra -std=c11 -Iinclude
 LDFLAGS =
 
-SRCS = src/level.c src/obstacle.c src/bird.c src/bird_queue.c src/physics.c src/json_io.c
+SRCS = src/level.c src/level_defaults.c src/bird_game.c src/obstacle.c src/bird.c src/bird_queue.c src/physics.c src/json_io.c
 OBJS = $(SRCS:.c=.o)
 SIM_SRCS = src/main.c
 SIM_OBJS = $(SIM_SRCS:.c=.o)
